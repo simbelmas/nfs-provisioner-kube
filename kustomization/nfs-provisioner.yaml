@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nfs-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nfs-client-provisioner-runner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+rules:
+  - apiGroups:
+    - extensions
+    resources:
+    - podsecuritypolicies
+    resourceNames:
+    - 100-privileged # the psp we are giving access to
+    verbs:
+    - use
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-client-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: nfs-provisioner
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: nfs-provisioner
+roleRef:
+  kind: Role
+  name: leader-locking-nfs-client-provisioner
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: managed-nfs-storage
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+provisioner: k8s-sigs.io/nfs-subdir-external-provisioner # or choose another name, must match deployment's env PROVISIONER_NAME'
+parameters:
+  archiveOnDelete: "false"
+  onDelete: retain
+  pathPattern: "${.PVC.namespace}-${.PVC.name}"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-provisioner
+  labels:
+    app.kubernetes.io/part-of: nfs-provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: nfs-provisioner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: nfs-provisioner
+    spec:
+      serviceAccountName: nfs-client-provisioner
+      containers:
+      - name: nfs-provisioner
+        image: k8s.gcr.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+        volumeMounts:
+          - name: nfs-client-root
+            mountPath: /persistentvolumes
+        env:
+          - name: PROVISIONER_NAME
+            value: k8s-sigs.io/nfs-subdir-external-provisioner
+          - name: NFS_SERVER
+            value: EXTERNAL_NFS_SERVER
+          - name: NFS_PATH
+            value: EXTERNAL_NFS_PATH
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: EXTERNAL_NFS_SERVER
+            path: EXTERNAL_NFS_PATH
