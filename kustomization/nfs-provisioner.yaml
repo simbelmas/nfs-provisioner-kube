@@ -111,7 +111,6 @@ spec:
         app.kubernetes.io/part-of: nfs-provisioner
     spec:
       securityContext:
-        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: nfs-client-provisioner
