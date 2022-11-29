@@ -21,14 +21,6 @@ metadata:
   labels:
     app.kubernetes.io/part-of: nfs-provisioner
 rules:
-  - apiGroups:
-    - extensions
-    resources:
-    - podsecuritypolicies
-    resourceNames:
-    - 100-privileged # the psp we are giving access to
-    verbs:
-    - use
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
@@ -118,6 +110,10 @@ spec:
       labels:
         app.kubernetes.io/part-of: nfs-provisioner
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: nfs-client-provisioner
       containers:
       - name: nfs-provisioner
@@ -132,6 +128,10 @@ spec:
             value: EXTERNAL_NFS_SERVER
           - name: NFS_PATH
             value: EXTERNAL_NFS_PATH
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ['ALL']
       volumes:
         - name: nfs-client-root
           nfs:
